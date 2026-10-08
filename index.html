@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TARA Spatial Reasoning · 3D Interactives</title>
+<style>
+:root{--wine:#7E2528;--paper:#F5F0E7;--paper2:#FFFDF8;--ink:#22211E;--line:#DED4C5;--muted:#736B62}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,"Source Han Sans SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;overflow:hidden}
+.app{height:100%;display:grid;grid-template-columns:112px 1fr}.rail{background:#fffaf2;border-right:1px solid var(--line);padding:16px 10px;overflow:auto}.brand{height:46px;border-radius:12px;background:var(--wine);color:#fff;display:grid;place-items:center;font-weight:800;letter-spacing:.08em;margin-bottom:14px}.qbtn{width:100%;border:1px solid transparent;background:transparent;border-radius:10px;padding:10px 8px;margin:2px 0;font-weight:700;color:#5a5148;cursor:pointer}.qbtn:hover{background:#f1e8dc}.qbtn.active{background:var(--wine);color:#fff}
+.main{min-width:0;display:grid;grid-template-rows:64px 1fr}.top{display:flex;align-items:center;justify-content:space-between;padding:0 22px;border-bottom:1px solid var(--line);background:rgba(255,253,248,.92)}.title{font-size:22px;font-weight:800}.mini{font-size:12px;color:var(--muted)}
+.stage-wrap{position:relative;min-height:0}.stage{position:absolute;inset:0;display:grid;place-items:center;padding:20px}.viewer{width:min(1180px,96%);height:min(760px,92%);background:var(--paper2);border:1px solid var(--line);border-radius:24px;box-shadow:0 18px 50px rgba(70,50,30,.09);display:grid;grid-template-rows:1fr auto;overflow:hidden}.canvas-wrap{position:relative;min-height:0;background:radial-gradient(circle at 50% 42%,#fff 0,#fffdf8 55%,#f4eee5 100%)}canvas{width:100%;height:100%;display:block;touch-action:none}.overlay-label{position:absolute;left:18px;top:16px;font-size:14px;font-weight:800;background:rgba(255,253,248,.88);border:1px solid var(--line);padding:7px 10px;border-radius:999px}.controls{min-height:74px;border-top:1px solid var(--line);padding:12px 14px;background:#fffaf4;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ctrl{border:1px solid #d9ccb9;background:#fffdf8;border-radius:999px;padding:9px 13px;font-weight:700;color:#403a34;cursor:pointer}.ctrl:hover{border-color:#bca993}.ctrl.active{background:var(--wine);color:#fff;border-color:var(--wine)}.range{appearance:none;width:min(420px,42vw);height:5px;border-radius:8px;background:#dfd3c3;outline:none}.range::-webkit-slider-thumb{appearance:none;width:18px;height:18px;border-radius:50%;background:var(--wine);cursor:pointer}.sep{width:1px;height:28px;background:var(--line);margin:0 3px}.spacer{flex:1}.hint{font-size:12px;color:#80766b;margin-left:auto}.badge{font-size:12px;padding:7px 10px;border-radius:999px;background:#eee5da}
+@media(max-width:760px){body{overflow:auto}.app{grid-template-columns:1fr;height:auto;min-height:100vh}.rail{position:sticky;top:0;z-index:5;display:flex;gap:6px;overflow:auto;padding:8px;border-right:0;border-bottom:1px solid var(--line)}.brand{min-width:66px;margin:0}.qbtn{min-width:60px;margin:0}.main{height:calc(100vh - 63px)}.top{padding:0 14px}.title{font-size:18px}.viewer{width:98%;height:94%;border-radius:16px}.controls{min-height:86px}.range{width:180px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail" id="rail"><div class="brand">3D</div></nav>
+  <main class="main">
+    <div class="top"><div class="title" id="qtitle">Q1</div><div class="mini">drag to rotate · wheel to zoom</div></div>
+    <div class="stage-wrap"><div class="stage"><div class="viewer"><div class="canvas-wrap"><canvas id="cv"></canvas><div class="overlay-label" id="sceneLabel">Q1</div></div><div class="controls" id="controls"></div></div></div></div>
+  </main>
+</div>
+<script>
+(() => {
+const qs=[1,2,3,4,5,6,8,9,10,12,14,16,17,19,20,23,26,29,31,32,33,34,35,36];
+const rail=document.getElementById('rail'),controls=document.getElementById('controls'),title=document.getElementById('qtitle'),label=document.getElementById('sceneLabel');
+qs.forEach(q=>{const b=document.createElement('button');b.className='qbtn';b.textContent='Q'+q;b.onclick=()=>load(q);rail.appendChild(b)});
+const canvas=document.getElementById('cv'),ctx=canvas.getContext('2d');let W=900,H=620,dpr=1,viewer,scene=null;
+const V=(x=0,y=0,z=0)=>({x,y,z}), add=(a,b)=>V(a.x+b.x,a.y+b.y,a.z+b.z), sub=(a,b)=>V(a.x-b.x,a.y-b.y,a.z-b.z), mul=(a,s)=>V(a.x*s,a.y*s,a.z*s), dot=(a,b)=>a.x*b.x+a.y*b.y+a.z*b.z, cross=(a,b)=>V(a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x), norm=a=>{const n=Math.hypot(a.x,a.y,a.z)||1;return V(a.x/n,a.y/n,a.z/n)};
+function rotXYZ(p,rx,ry,rz){let {x,y,z}=p,c=Math.cos(rx),s=Math.sin(rx);let y1=y*c-z*s,z1=y*s+z*c;y=y1;z=z1;c=Math.cos(ry);s=Math.sin(ry);let x1=x*c+z*s,z2=-x*s+z*c;x=x1;z=z2;c=Math.cos(rz);s=Math.sin(rz);return V(x*c-y*s,x*s+y*c,z)}
+function face(a,b,c,d,style={}){return {pts:[a,b,c,d],style}}
+function tri(a,b,c,style={}){return {pts:[a,b,c],style}}
+function cubeFaces(center=V(),s=1,marks={},style={}){const h=s/2,c=center;const p=(x,y,z)=>V(c.x+x*h,c.y+y*h,c.z+z*h);return [
+ face(p(-1,-1,1),p(1,-1,1),p(1,1,1),p(-1,1,1),{...style,key:'front',mark:marks.front}),
+ face(p(1,-1,-1),p(-1,-1,-1),p(-1,1,-1),p(1,1,-1),{...style,key:'back',mark:marks.back}),
+ face(p(1,-1,1),p(1,-1,-1),p(1,1,-1),p(1,1,1),{...style,key:'right',mark:marks.right}),
+ face(p(-1,-1,-1),p(-1,-1,1),p(-1,1,1),p(-1,1,-1),{...style,key:'left',mark:marks.left}),
+ face(p(-1,1,1),p(1,1,1),p(1,1,-1),p(-1,1,-1),{...style,key:'top',mark:marks.top}),
+ face(p(-1,-1,-1),p(1,-1,-1),p(1,-1,1),p(-1,-1,1),{...style,key:'bottom',mark:marks.bottom})];}
+function boxFaces(center=V(),sx=2,sy=1,sz=1,marks={},style={}){const c=center,p=(x,y,z)=>V(c.x+x*sx/2,c.y+y*sy/2,c.z+z*sz/2);return [face(p(-1,-1,1),p(1,-1,1),p(1,1,1),p(-1,1,1),{...style,key:'front',mark:marks.front}),face(p(1,-1,-1),p(-1,-1,-1),p(-1,1,-1),p(1,1,-1),{...style,key:'back',mark:marks.back}),face(p(1,-1,1),p(1,-1,-1),p(1,1,-1),p(1,1,1),{...style,key:'right',mark:marks.right}),face(p(-1,-1,-1),p(-1,-1,1),p(-1,1,1),p(-1,1,-1),{...style,key:'left',mark:marks.left}),face(p(-1,1,1),p(1,1,1),p(1,1,-1),p(-1,1,-1),{...style,key:'top',mark:marks.top}),face(p(-1,-1,-1),p(1,-1,-1),p(1,-1,1),p(-1,-1,1),{...style,key:'bottom',mark:marks.bottom})]}
+function voxelFaces(voxels,styleFn=()=>({})){const set=new Set(voxels.map(v=>v.join(','))),dirs=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]],out=[];for(const [x,y,z] of voxels){for(const [dx,dy,dz] of dirs){if(set.has([x+dx,y+dy,z+dz].join(',')))continue;const c=V(x,y,z),s=.98,style=styleFn(x,y,z,dx,dy,dz);let pts;if(dx===1)pts=[V(x+s/2,y-s/2,z+s/2),V(x+s/2,y-s/2,z-s/2),V(x+s/2,y+s/2,z-s/2),V(x+s/2,y+s/2,z+s/2)];if(dx===-1)pts=[V(x-s/2,y-s/2,z-s/2),V(x-s/2,y-s/2,z+s/2),V(x-s/2,y+s/2,z+s/2),V(x-s/2,y+s/2,z-s/2)];if(dy===1)pts=[V(x-s/2,y+s/2,z+s/2),V(x+s/2,y+s/2,z+s/2),V(x+s/2,y+s/2,z-s/2),V(x-s/2,y+s/2,z-s/2)];if(dy===-1)pts=[V(x-s/2,y-s/2,z-s/2),V(x+s/2,y-s/2,z-s/2),V(x+s/2,y-s/2,z+s/2),V(x-s/2,y-s/2,z+s/2)];if(dz===1)pts=[V(x-s/2,y-s/2,z+s/2),V(x+s/2,y-s/2,z+s/2),V(x+s/2,y+s/2,z+s/2),V(x-s/2,y+s/2,z+s/2)];if(dz===-1)pts=[V(x+s/2,y-s/2,z-s/2),V(x-s/2,y-s/2,z-s/2),V(x-s/2,y+s/2,z-s/2),V(x+s/2,y+s/2,z-s/2)];out.push({pts,style});}}return out}
+function tetraFaces(){const p=[V(0,1.15,0),V(-1,-.75,.82),V(1,-.75,.82),V(0,-.75,-1.1)];return [[0,1,2],[0,2,3],[0,3,1],[1,3,2]].map((f,i)=>tri(p[f[0]],p[f[1]],p[f[2]],{fill:i===1?'#f7f2ea':'#fff',key:'t'+i}))}
+function octaFaces(){const p=[V(1,0,0),V(-1,0,0),V(0,1,0),V(0,-1,0),V(0,0,1),V(0,0,-1)],f=[[2,0,4],[2,4,1],[2,1,5],[2,5,0],[3,4,0],[3,1,4],[3,5,1],[3,0,5]];return f.map((a,i)=>tri(p[a[0]],p[a[1]],p[a[2]],{mark:String(i+1),key:'o'+i,fill:i%2?'#f5efe6':'#fff'}))}
+function prismHexFaces(marks={}){let pts=[];for(let z of [-.65,.65])for(let i=0;i<6;i++){let a=Math.PI/6+i*Math.PI/3;pts.push(V(Math.cos(a),Math.sin(a),z))}let fs=[];fs.push({pts:pts.slice(0,6),style:{mark:marks.back||'⬡'}});fs.push({pts:pts.slice(6,12).reverse(),style:{mark:marks.front||'⬡'}});for(let i=0;i<6;i++)fs.push(face(pts[i],pts[(i+1)%6],pts[(i+1)%6+6],pts[i+6],{mark:marks['s'+i]||'',fill:i%2?'#fff':'#faf6ef'}));return fs}
+function houseFaces(){const v=[V(-1,-.7,-.7),V(1,-.7,-.7),V(1,-.7,.7),V(-1,-.7,.7),V(-1,.3,-.7),V(1,.3,-.7),V(1,.3,.7),V(-1,.3,.7),V(-1,1,-.7),V(-1,1,.7)];return [face(v[0],v[1],v[5],v[4],{fill:'#fff'}),face(v[3],v[7],v[6],v[2],{fill:'#fff'}),face(v[0],v[4],v[7],v[3],{fill:'#fff'}),face(v[1],v[2],v[6],v[5],{fill:'#fff'}),face(v[4],v[5],v[8],v[8],{fill:'#fff'}),face(v[7],v[9],v[6],v[6],{fill:'#fff'}),face(v[4],v[8],v[9],v[7],{fill:'#f8f1e7'}),face(v[8],v[5],v[6],v[9],{fill:'#f0e6d7'})]}
+class Viewer{constructor(){this.rx=-.45;this.ry=.65;this.rz=0;this.zoom=1;this.drag=false;this.model=[];this.extra=null;this.bg=null;this.state={};this.click=null;this.hit=[];this.down=null;canvas.onpointerdown=e=>{this.drag=true;this.x=e.clientX;this.y=e.clientY;this.down={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)};canvas.onpointermove=e=>{if(!this.drag)return;this.ry+=(e.clientX-this.x)*.008;this.rx+=(e.clientY-this.y)*.008;this.x=e.clientX;this.y=e.clientY;draw()};canvas.onpointerup=e=>{const moved=this.down?Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y):99;this.drag=false;if(moved<5&&this.click){const r=canvas.getBoundingClientRect();this.click({x:e.clientX-r.left,y:e.clientY-r.top})}};canvas.onpointercancel=()=>this.drag=false;canvas.onwheel=e=>{e.preventDefault();this.zoom=Math.max(.45,Math.min(2.4,this.zoom*(e.deltaY>0?.92:1.08)));draw()};}
+reset(){this.rx=-.45;this.ry=.65;this.rz=0;this.zoom=1;draw()}}
+viewer=new Viewer();
+function projectR(q){const cam=5.8,den=cam-q.z,sc=Math.min(W,H)*.30*viewer.zoom/den*cam;return {x:W/2+q.x*sc,y:H/2-q.y*sc,z:q.z,sc}}
+function project(p){return projectR(rotXYZ(p,viewer.rx,viewer.ry,viewer.rz))}
+function polyCenter(f){return f.pts.reduce((a,p)=>add(a,p),V()) && mul(f.pts.reduce((a,p)=>add(a,p),V()),1/f.pts.length)}
+function drawMark(f,pp){const m=f.style.mark;if(!m)return;const c=polyCenter({pts:pp}),cx=c.x,cy=c.y;ctx.save();ctx.strokeStyle='#171717';ctx.fillStyle='#171717';ctx.lineWidth=2.2;ctx.textAlign='center';ctx.textBaseline='middle';let fs=Math.max(16,Math.min(46,pp.map(p=>p.sc||30).reduce((a,b)=>a+b,0)/pp.length*.38));ctx.font=`700 ${fs}px Arial`;
+ if(m==='black'){ctx.fillRect(Math.min(...pp.map(p=>p.x))+2,Math.min(...pp.map(p=>p.y))+2,Math.max(...pp.map(p=>p.x))-Math.min(...pp.map(p=>p.x))-4,Math.max(...pp.map(p=>p.y))-Math.min(...pp.map(p=>p.y))-4)}
+ else if(m==='dot'||m==='●'){ctx.beginPath();ctx.arc(cx,cy,fs*.28,0,Math.PI*2);ctx.fill()}
+ else if(m==='open'||m==='○'){ctx.beginPath();ctx.arc(cx,cy,fs*.32,0,Math.PI*2);ctx.stroke()}
+ else if(m==='x'||m==='×'){ctx.beginPath();ctx.moveTo(cx-fs*.3,cy-fs*.3);ctx.lineTo(cx+fs*.3,cy+fs*.3);ctx.moveTo(cx-fs*.3,cy+fs*.3);ctx.lineTo(cx+fs*.3,cy-fs*.3);ctx.stroke()}
+ else if(m==='hbar'){ctx.fillRect(cx-fs*.48,cy-fs*.11,fs*.96,fs*.22)}
+ else if(m==='vbar'){ctx.fillRect(cx-fs*.11,cy-fs*.48,fs*.22,fs*.96)}
+ else if(m==='tri'){ctx.beginPath();ctx.moveTo(cx-fs*.32,cy-fs*.3);ctx.lineTo(cx-fs*.32,cy+fs*.3);ctx.lineTo(cx+fs*.34,cy);ctx.closePath();ctx.stroke()}
+ else if(/^pips/.test(m)){const n=+m.slice(4),d=fs*.24,pos=[[-1,-1],[1,1],[-1,1],[1,-1],[0,0],[-1,0],[1,0]];for(let i=0;i<n;i++){const [px,py]=pos[i];ctx.beginPath();ctx.arc(cx+px*d,cy+py*d,fs*.075,0,Math.PI*2);ctx.fill()}}
+ else if(m==='stripe'){ctx.save();ctx.translate(cx,cy);ctx.rotate(-.8);for(let x=-fs*.45;x<fs*.46;x+=fs*.16)ctx.fillRect(x,-fs*.45,fs*.06,fs*.9);ctx.restore()}
+ else if(m==='gray'){ctx.fillStyle='#a8adb2';ctx.fillRect(cx-fs*.33,cy-fs*.33,fs*.66,fs*.66)}
+ else if(m==='corner'){ctx.beginPath();ctx.moveTo(pp[0].x,pp[0].y);ctx.lineTo((pp[0].x+pp[1].x)/2,(pp[0].y+pp[1].y)/2);ctx.lineTo((pp[0].x+pp[pp.length-1].x)/2,(pp[0].y+pp[pp.length-1].y)/2);ctx.closePath();ctx.fillStyle='#8f9599';ctx.fill()}
+ else{ctx.fillText(m,cx,cy)}ctx.restore()}
+function draw(){ctx.clearRect(0,0,W,H);ctx.fillStyle='#fffdf8';ctx.fillRect(0,0,W,H);viewer.hit=[];if(viewer.bg)viewer.bg(ctx,W,H,project);let model=typeof viewer.model==='function'?viewer.model():viewer.model;let fs=model.map(f=>{const rotPts=f.pts.map(p=>rotXYZ(p,viewer.rx,viewer.ry,viewer.rz));const a=rotPts[0],b=rotPts[1],c=rotPts[2];const n=cross(sub(b,a),sub(c,a));const visible=(f.style&&f.style.doubleSided)||n.z>0;return {f,rotPts,pp:rotPts.map(projectR),z:rotPts.reduce((acc,p)=>acc+p.z,0)/rotPts.length,visible}}).filter(o=>o.visible).sort((a,b)=>a.z-b.z);for(const {f,pp} of fs){ctx.beginPath();ctx.moveTo(pp[0].x,pp[0].y);for(let i=1;i<pp.length;i++)ctx.lineTo(pp[i].x,pp[i].y);ctx.closePath();ctx.fillStyle=f.style.fill||'#fff';ctx.fill();ctx.strokeStyle=f.style.stroke||'#252321';ctx.lineWidth=1.4;ctx.stroke();drawMark(f,pp)}if(viewer.extra)viewer.extra(ctx,W,H,project);}
+function resize(){const r=canvas.getBoundingClientRect();dpr=Math.min(2,devicePixelRatio||1);W=r.width;H=r.height;canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);draw()}addEventListener('resize',resize);
+function button(txt,fn,active=false){const b=document.createElement('button');b.className='ctrl'+(active?' active':'');b.textContent=txt;b.onclick=()=>{fn(b);draw()};controls.appendChild(b);return b}
+function range(min,max,val,fn){const r=document.createElement('input');r.type='range';r.min=min;r.max=max;r.value=val;r.className='range';r.oninput=()=>{fn(+r.value);draw()};controls.appendChild(r);return r}
+function sep(){const s=document.createElement('div');s.className='sep';controls.appendChild(s)}function resetBtn(){sep();button('Reset',()=>viewer.reset())}
+function setView(rx,ry,rz=0){viewer.rx=rx;viewer.ry=ry;viewer.rz=rz;draw()}
+function standardCubeControls(views=[]){views.forEach(v=>button(v[0],()=>setView(v[1],v[2],v[3]||0)));resetBtn()}
+function centeredVox(vox){let xs=vox.map(v=>v[0]),ys=vox.map(v=>v[1]),zs=vox.map(v=>v[2]),cx=(Math.min(...xs)+Math.max(...xs))/2,cy=(Math.min(...ys)+Math.max(...ys))/2,cz=(Math.min(...zs)+Math.max(...zs))/2;return vox.map(([x,y,z])=>[x-cx,y-cy,z-cz])}
+function cubeScene(marks,views){viewer.model=cubeFaces(V(),2,marks);standardCubeControls(views||[['View 1',-.45,.65],['View 2',-.7,-.6],['Top',-1.5,0],['Front',0,0]])}
+function setActive(buttons,idx){buttons.forEach((b,i)=>b.classList.toggle('active',i===idx))}
+function polySelect(items){let idx=0,bs=[];const update=()=>{viewer.model=voxelFaces(centeredVox(items[idx]));draw()};items.forEach((it,i)=>bs.push(button(String(i+1),()=>{idx=i;setActive(bs,i);update()},i===0)));update();resetBtn()}
+const scenes={
+1(){cubeScene({front:'black',right:'dot',top:'',left:'stripe',back:'gray',bottom:''},[['View 1',-.35,.65],['View 2',-.72,-.55],['Free',-.45,.65]])},
+2(){viewer.model=cubeFaces(V(),2,{front:'corner',right:'corner',top:'corner',left:'corner',back:'corner',bottom:'corner'});standardCubeControls([['View 1',-.35,.65],['View 2',-.65,-.55],['A',-.55,1.35],['B',-.25,-1.1],['C',.25,.7],['D',-.8,.2],['E',-.1,2.2]])},
+3(){const items=[[[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,0,1]],[[0,0,0],[1,0,0],[2,0,0],[1,1,0],[1,0,1]],[[0,0,0],[1,0,0],[2,0,0],[2,1,0],[2,1,1]],[[0,0,0],[1,0,0],[1,1,0],[1,1,1],[2,1,1]],[[0,0,0],[1,0,0],[2,0,0],[0,1,0],[0,1,1]]];polySelect(items)},
+4(){const items=[[[0,0,0],[1,0,0],[2,0,0],[1,1,0]],[[0,0,0],[1,0,0],[1,1,0],[2,1,0]],[[0,0,0],[1,0,0],[0,1,0]],[[0,0,0],[1,0,0],[0,1,0],[0,1,1]],[[0,0,0],[0,1,0],[1,1,0]],[[0,0,0],[1,0,0],[0,1,0]],[[0,0,0],[1,0,0],[2,0,0],[1,1,0]],[[0,0,0],[1,0,0],[1,1,0],[1,1,1]],[[0,0,0],[1,0,0],[2,0,0],[2,1,0]],[[0,0,0],[1,0,0],[1,1,0]]];polySelect(items)},
+5(){cubeScene({front:'IV',right:'II',top:'III',left:'VI',back:'V',bottom:'I'},[['Die 1',-.35,.65],['Die 2',-.7,-.55],['Die 3',-.35,-1.6]])},
+6(){viewer.model=tetraFaces();viewer.extra=(c,w,h,p)=>{const pts=[V(0,1.15,0),V(-1,-.75,.82),V(1,-.75,.82),V(0,-.75,-1.1)].map(p);const colors=['#aaa','#111','#111','#fff'];for(let i=0;i<4;i++){c.beginPath();c.arc(pts[i].x,pts[i].y,10,0,Math.PI*2);c.fillStyle=colors[i];c.fill();c.strokeStyle='#333';c.stroke()}};standardCubeControls([['Start',-.45,.65],['A',-.6,1.4],['B',-.3,-.9],['C',.45,.6],['D',-.9,.15],['E',.1,2.2]])},
+8(){viewer.model=boxFaces(V(),3,1.35,1.7,{left:'tri',right:'tri'});let fold=1;range(0,100,100,v=>{fold=v/100;viewer.model=boxFaces(V(),1+2*fold,.3+1.05*fold,1.7,{left:'tri',right:'tri'})});button('A',()=>setView(-.35,.65));button('B',()=>setView(-.35,-.7));button('C',()=>setView(.35,.8));button('D',()=>setView(-.8,1.7));resetBtn()},
+9(){let which=0,bs=[];const models=[{front:'pips3',right:'pips1',top:'pips6',left:'pips5',back:'pips4',bottom:'pips2'},{front:'pips4',right:'pips5',top:'pips2',left:'pips3',back:'pips1',bottom:'pips6'}];const up=()=>{viewer.model=cubeFaces(V(),2,models[which]);draw()};bs=[button('Die 1',()=>{which=0;setActive(bs,0);up()},true),button('Die 2',()=>{which=1;setActive(bs,1);up()})];up();resetBtn()},
+10(){const base=[[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,0,1]];const comps=[[[1,1,0],[1,1,1],[0,1,1]],[[1,1,0],[2,0,0],[2,1,0]],[[1,1,0],[1,1,1],[2,1,1]],[[1,1,0],[2,1,0],[2,0,0]],[[1,1,0],[1,1,1],[0,1,1]]];let idx=0,blend=0;const update=()=>{let a=base.map(v=>v.slice()),b=comps[idx].map(v=>[v[0]+(1-blend)*2.4,v[1],v[2]]);viewer.model=voxelFaces(centeredVox([...a,...b]),(x,y,z)=>({fill:x>1.3?'#eee3d7':'#fff'}));};let bs=[];'ABCDE'.split('').forEach((x,i)=>bs.push(button(x,()=>{idx=i;setActive(bs,i);update()},i===0)));range(0,100,0,v=>{blend=v/100;update()});update();resetBtn()},
+12(){cubeScene({front:'pips5',right:'pips3',top:'pips4',left:'pips2',back:'pips6',bottom:'pips1'},[['View 1',-.35,.65],['View 2',-.65,-.5],['A',-.2,1.1],['B',-.4,-1.2],['C',.1,.6],['D',-.9,.3],['E',-.4,2.0],['F',.25,-2.2],['G',-.8,-.9],['H',-.2,.2]])},
+14(){let die=0,bs=[];const models=[{front:'pips6',right:'pips2',top:'pips3',left:'pips4',back:'pips1',bottom:'pips5'},{front:'pips6',right:'pips2',top:'pips5',left:'pips4',back:'pips1',bottom:'pips3'}];const up=()=>viewer.model=cubeFaces(V(),2,models[die]);bs=[button('Die 1',()=>{die=0;setActive(bs,0);up()},true),button('Die 2',()=>{die=1;setActive(bs,1);up()})];up();standardCubeControls([['View A',-.4,.65],['View B',-.7,-.5]])},
+16(){viewer.model=houseFaces();standardCubeControls([['Model',-.45,.7],['1',0,0],['2',0,1.57],['3',0,3.14],['4',0,-1.57],['5',-.15,.1],['6',-.15,3.0]])},
+17(){viewer.model=prismHexFaces({front:'⬡',back:'⬡',s0:'△',s1:'▯',s2:'◇',s3:'▬',s4:'◁',s5:'▭'});range(0,100,100,v=>{viewer.rz=(1-v/100)*1.15});standardCubeControls([['A',-.35,.3],['B',-.35,1.5],['C',.3,.3],['D',-.55,-1.1],['E',.25,-2.0]])},
+19(){viewer.model=octaFaces();let step=0;const path=[['R',-.45,.6],['Q',-.1,1.4],['P',.5,2.2],['S',-.55,-1.2]],bs=[];path.forEach((a,i)=>bs.push(button(a[0],()=>{step=i;setActive(bs,i);setView(a[1],a[2])},i===0)));resetBtn()},
+20(){viewer.model=cubeFaces(V(),2,{front:'gray',right:'',top:'gray',left:'',back:'gray',bottom:''});standardCubeControls([['1',-.4,.65],['2',-.35,-.7],['3',-.7,.1],['4',.2,1.2],['5',-.2,2.3],['6',.6,-1.6]])},
+23(){q23()},
+26(){viewer.model=[];let rot=0;viewer.extra=(c,w,h,p)=>{const O=p(V(0,0,0)),a=p(V(2,0,0)),b=p(V(0,0,2)),up=p(V(0,2,0));c.save();c.globalAlpha=.16;c.fillStyle='#536D80';c.beginPath();c.moveTo(O.x,O.y);c.lineTo(a.x,a.y);c.lineTo(p(V(2,2,0)).x,p(V(2,2,0)).y);c.lineTo(up.x,up.y);c.closePath();c.fill();c.beginPath();c.moveTo(O.x,O.y);c.lineTo(b.x,b.y);c.lineTo(p(V(0,2,2)).x,p(V(0,2,2)).y);c.lineTo(up.x,up.y);c.closePath();c.fill();c.globalAlpha=1;const t=p(rotXYZ(V(.8,.05,.8),0,rot,0));c.fillStyle='#7E2528';c.fillRect(t.x-28,t.y-18,56,36);c.restore()};range(0,360,0,v=>{rot=v*Math.PI/180});button('1',()=>{rot=0});button('2',()=>{rot=Math.PI/2});button('3',()=>{rot=Math.PI});button('4',()=>{rot=3*Math.PI/2});resetBtn()},
+29(){let day=0;const bases=[[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1],[1,2],[2,2]],order=[2,7,0,9,4,5,8,1,6,3];const update=()=>{let vox=[];for(let i=0;i<10;i++){let h=3-(i<day?1:0);for(let z=0;z<h;z++)vox.push([bases[i][0],z,bases[i][1]])}viewer.model=voxelFaces(centeredVox(vox));};range(0,10,0,v=>{day=v;update()});button('Top',()=>setView(-1.45,0));button('Y view',()=>setView(0,1.57));update();resetBtn()},
+31(){viewer.model=cubeFaces(V(),2,{front:'pips5',right:'pips3',top:'pips6',left:'pips4',back:'pips2',bottom:'pips1'});button('Start',()=>{viewer.rx=-.45;viewer.ry=.65});button('90° X',()=>{viewer.rx+=Math.PI/2});button('90° Y',()=>{viewer.ry+=Math.PI/2});button('90° Z',()=>{viewer.rz+=Math.PI/2});resetBtn()},
+32(){viewer.model=cubeFaces(V(),2,{front:'●',right:'◇',top:'○',left:'×',back:'',bottom:''});let bs=[];'ABCDE'.split('').forEach((x,i)=>bs.push(button(x,()=>{setActive(bs,i);setView([-.45,-.7,.2,-.1,.55][i],[.65,-.6,1.6,-1.8,2.4][i])},i===0)));resetBtn()},
+33(){let fold=0;viewer.model=[];viewer.extra=(c,w,h,p)=>{const A=p(V(-1.7,0,0)),B=p(V(1.7,0,0)),C=p(V(1.7,0,1.0)),D=p(V(-1.7,0,1.0));c.save();c.fillStyle='#fff';c.strokeStyle='#222';c.beginPath();c.moveTo(A.x,A.y);c.lineTo(B.x,B.y);c.lineTo(C.x,C.y);c.lineTo(D.x,D.y);c.closePath();c.fill();c.stroke();c.restore()};range(0,100,0,v=>{fold=v/100;viewer.ry=.65+fold*Math.PI;viewer.rx=-.35+fold*.6});let bs=[];'ABCD'.split('').forEach((x,i)=>bs.push(button(x,()=>{setActive(bs,i);viewer.rz=[0,.4,-.4,.8][i]},i===0)));resetBtn()},
+34(){let which=0,bs=[];const conv={front:'pips4',right:'pips3',top:'pips5',left:'pips2',back:'pips1',bottom:'pips6'},odd={front:'pips4',right:'pips6',top:'pips2',left:'pips5',back:'pips3',bottom:'pips1'};const up=()=>viewer.model=cubeFaces(V(),2,which?odd:conv);bs=[button('Die A',()=>{which=0;setActive(bs,0);up()},true),button('Die B',()=>{which=1;setActive(bs,1);up()})];up();button('Throw 1',()=>setView(-.4,.65));button('Throw 2',()=>setView(-.7,-.55));resetBtn()},
+35(){const pieces=[[[0,0,0],[1,0,0],[2,0,0],[1,1,0]],[[0,0,0],[1,0,0],[0,1,0],[0,0,1]],[[0,0,0],[0,1,0],[0,0,1],[0,1,1]],[[0,0,0],[1,0,0],[2,0,0],[0,1,0]],[[0,0,0],[0,1,0],[0,2,0],[1,0,0]],[[0,0,0],[0,1,0],[1,1,0],[0,1,1]],[[0,0,0],[1,0,0],[1,1,0],[1,1,1]]];let idx=0,assembled=0;const up=()=>{let vox=pieces[idx].map(v=>[v[0]+(1-assembled)*2,v[1],v[2]]);let fg=[...pieces[5],...pieces[6].map(v=>[v[0]+2,v[1],v[2]])];viewer.model=voxelFaces(centeredVox([...fg,...vox]),(x)=>({fill:x>1.5?'#eee4da':'#fff'}));};let bs=[];'ABCDEFG'.split('').forEach((x,i)=>bs.push(button(x,()=>{idx=i;setActive(bs,i);up()},i===0)));range(0,100,0,v=>{assembled=v/100;up()});up();resetBtn()},
+36(){const shapes={P:[[0,0],[1,0],[2,0],[1,1]],Q:[[0,0],[0,1],[0,2],[-1,1]],R:[[0,0],[0,1],[0,2],[-1,2]],S:[[0,0],[1,0],[2,0],[1,-1]]};let key='P',fold=0;const up=()=>{let v=shapes[key].map(([x,y])=>[x,y,0]);viewer.model=voxelFaces(centeredVox(v.map(([x,y,z])=>[x,y,z])));viewer.rz=fold*Math.PI/4};let bs=[];Object.keys(shapes).forEach((k,i)=>bs.push(button(k,()=>{key=k;setActive(bs,i);up()},i===0)));range(0,100,0,v=>{fold=v/100;up()});up();resetBtn()}
+};
+function q23(){
+  const faces={
+    T:{parent:null,rel:null,kind:'tri',pos:[0,0]},
+    H:{parent:'T',rel:[-1,0],kind:'hbar',pos:[-1,0]},
+    V:{parent:'T',rel:[1,0],kind:'vbar',pos:[1,0]},
+    B:{parent:'T',rel:[0,-1],kind:'●',pos:[0,-1]},
+    X:{parent:'H',rel:[0,1],kind:'×',pos:[-1,1]},
+    O:{parent:'X',rel:[-1,0],kind:'○',pos:[-2,1]}
+  };
+  const order=['T','H','V','B','X','O'];
+  const state={H:0,V:0,B:0,X:0,O:0};
+  const I=()=>[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],mm=(a,b)=>{let o=new Array(16).fill(0);for(let r=0;r<4;r++)for(let c=0;c<4;c++)for(let k=0;k<4;k++)o[r*4+c]+=a[r*4+k]*b[k*4+c];return o},Tm=(x,y,z)=>[1,0,0,x,0,1,0,y,0,0,1,z,0,0,0,1],Rx=a=>{let c=Math.cos(a),s=Math.sin(a);return[1,0,0,0,0,c,-s,0,0,s,c,0,0,0,0,1]},Ry=a=>{let c=Math.cos(a),s=Math.sin(a);return[c,0,s,0,0,1,0,0,-s,0,c,0,0,0,0,1]},ap=(m,p)=>V(m[0]*p.x+m[1]*p.y+m[2]*p.z+m[3],m[4]*p.x+m[5]*p.y+m[6]*p.z+m[7],m[8]*p.x+m[9]*p.y+m[10]*p.z+m[11]);
+  function hinge(dx,dy,a){if(dx===1)return mm(mm(mm(Tm(.5,0,0),Ry(-a)),Tm(-.5,0,0)),Tm(1,0,0));if(dx===-1)return mm(mm(mm(Tm(-.5,0,0),Ry(a)),Tm(.5,0,0)),Tm(-1,0,0));if(dy===1)return mm(mm(mm(Tm(0,.5,0),Rx(a)),Tm(0,-.5,0)),Tm(0,1,0));return mm(mm(mm(Tm(0,-.5,0),Rx(-a)),Tm(0,.5,0)),Tm(0,-1,0))}
+  function draw2DMark(c,m,cx,cy,s){c.save();c.strokeStyle='#1d1b19';c.fillStyle='#111';c.lineWidth=2; if(m==='●'){c.beginPath();c.arc(cx,cy,s*.18,0,Math.PI*2);c.fill()} else if(m==='○'){c.beginPath();c.arc(cx,cy,s*.20,0,Math.PI*2);c.stroke()} else if(m==='×'){c.beginPath();c.moveTo(cx-s*.2,cy-s*.2);c.lineTo(cx+s*.2,cy+s*.2);c.moveTo(cx-s*.2,cy+s*.2);c.lineTo(cx+s*.2,cy-s*.2);c.stroke()} else if(m==='tri'){c.beginPath();c.moveTo(cx-s*.18,cy-s*.18);c.lineTo(cx-s*.18,cy+s*.18);c.lineTo(cx+s*.20,cy);c.closePath();c.stroke()} else if(m==='hbar'){c.fillRect(cx-s*.24,cy-s*.07,s*.48,s*.14)} else if(m==='vbar'){c.fillRect(cx-s*.07,cy-s*.24,s*.14,s*.48)} c.restore();}
+  viewer.rx=.42; viewer.ry=-.58; viewer.rz=0; viewer.zoom=1.05;
+  viewer.model=()=>{
+    const M={T:I()};
+    for(const id of order.slice(1)){const d=faces[id];M[id]=mm(M[d.parent],hinge(d.rel[0],d.rel[1],(state[id]||0)*Math.PI/2))}
+    return order.map(id=>{const m=M[id],q=(x,y)=>add(ap(m,V(x,y,0)),V(2.15,0,0));return face(q(-.48,-.48),q(.48,-.48),q(.48,.48),q(-.48,.48),{mark:faces[id].kind,fill:'#fff'})})
+  };
+  viewer.extra=(c,w,h)=>{
+    const size=Math.min(78,Math.max(54,Math.min(w,h)*.09)), ox=120, oy=h*.55; viewer.hit=[];
+    c.save(); c.font='12px Arial'; c.textAlign='center'; c.textBaseline='middle';
+    for(const id of order){ const f=faces[id], x=ox+f.pos[0]*size, y=oy-f.pos[1]*size; c.fillStyle='#fff'; c.strokeStyle='#2a2723'; c.lineWidth=2; c.fillRect(x-size/2,y-size/2,size,size); c.strokeRect(x-size/2,y-size/2,size,size); draw2DMark(c,f.kind,x,y,size); if(id!=='T'){ c.fillStyle=state[id]?'#7E2528':'#7b7268'; c.fillText(state[id]?'folded':'flat',x,y+size*.68); viewer.hit.push({id,x:x-size/2,y:y-size/2,w:size,h:size}); } }
+    c.restore();
+  };
+  viewer.click=({x,y})=>{for(const h of viewer.hit){if(x>=h.x&&x<=h.x+h.w&&y>=h.y&&y<=h.y+h.h){state[h.id]=state[h.id]?0:1;draw();return;}}};
+  button('Flat',()=>{for(const k of Object.keys(state))state[k]=0});
+  button('Fold all',()=>{for(const k of Object.keys(state))state[k]=1});
+  button('D view',()=>setView(1.02,2.56));
+  resetBtn();
+}
+function load(q){controls.innerHTML='';viewer.bg=null;viewer.extra=null;viewer.model=[];viewer.state={};viewer.click=null;viewer.hit=[];viewer.rx=-.45;viewer.ry=.65;viewer.rz=0;viewer.zoom=1;title.textContent='Q'+q;label.textContent='Q'+q;[...rail.querySelectorAll('.qbtn')].forEach(b=>b.classList.toggle('active',b.textContent==='Q'+q));scenes[q]();draw()}
+resize();load(1);
+})();
+</script>
+</body>
+</html>
